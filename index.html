@@ -1,0 +1,514 @@
+<!doctype html>
+<html lang="es">
+<head>
+<link rel="manifest" href="./manifest.json">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mi cocina</title>
+<style>
+:root{--bg:#f7f6f1;--card:#fff;--ink:#202923;--muted:#68736c;--line:#e2e7e1;--brand:#176b4d;--soft:#e7f3ec;--ok:#dff2e5;--danger:#a63e36}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,sans-serif}
+body.dark{--bg:#171e19;--card:#222c25;--ink:#f0f5f1;--muted:#bdc8bf;--line:#3b4940;--brand:#227b57;--soft:#2b4033;--ok:#294734;--danger:#b94b40}
+header{position:sticky;top:0;background:var(--card);border-bottom:1px solid var(--line);z-index:2}
+.top,main{max-width:1050px;margin:auto;padding:14px 20px}
+.top{display:flex;align-items:center;gap:12px}
+.logo{font-weight:750;font-size:21px;margin-right:auto}
+nav,.actions,.row{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+button,.btn{font:inherit;cursor:pointer;border:0;border-radius:11px;padding:10px 14px;background:var(--brand);color:white;font-weight:650}
+button:hover{filter:brightness(.93)}
+button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:3px solid #e99e4b;outline-offset:2px}
+.secondary,.btn.secondary{background:var(--soft);color:var(--ink)}
+.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
+main{padding-top:24px}
+h1{font-size:30px;margin:0 0 4px}
+h2{font-size:21px;margin:0 0 12px}
+p{color:var(--muted);margin:5px 0 14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:17px;padding:18px;margin:15px 0;box-shadow:0 7px 24px #14251b10}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+.field{display:flex;flex:1;min-width:120px;flex-direction:column;gap:5px;margin:8px 0}
+label{font-weight:650}
+input,textarea,select{font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;width:100%}
+textarea{min-height:65px;resize:vertical}
+.ingredient{display:grid;grid-template-columns:1fr 120px auto;gap:8px;margin:8px 0}
+.step{display:grid;grid-template-columns:32px 1fr auto auto auto;gap:7px;align-items:center;margin:8px 0}
+.pill{background:var(--soft);border-radius:99px;padding:3px 9px}
+.check{display:flex;gap:12px;align-items:center;padding:12px;border:1px solid var(--line);border-radius:11px;margin:8px 0}
+.check input{width:22px;height:22px;accent-color:#288956}
+.checked{background:var(--ok);text-decoration:line-through}
+.progress{height:10px;background:var(--line);border-radius:9px;overflow:hidden}
+.progress i{display:block;height:100%;background:#288956}
+.muted{color:var(--muted)}
+.hidden{display:none!important}
+.right{text-align:right}
+.subtle{font-size:14px}
+@media(max-width:650px){
+  .top{padding:10px 12px;flex-wrap:wrap}
+  .logo{font-size:19px}
+  nav{order:3;width:100%;justify-content:space-around}
+  nav button{flex:1;padding:8px 2px;font-size:14px}
+  main{padding:18px 12px 70px}
+  .card{padding:15px}
+  .ingredient{grid-template-columns:1fr 95px auto}
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="top">
+    <div class="logo">🍲 Mi cocina</div>
+    <nav>
+      <button class="secondary" data-page="recipes">Recetas</button>
+      <button class="secondary" data-page="cook">Cocinar</button>
+      <button class="secondary" data-page="budget">Presupuesto</button>
+      <button class="secondary" data-page="saved">Guardados</button>
+    </nav>
+    <button class="ghost" id="theme" aria-label="Cambiar tema">◐</button>
+  </div>
+</header>
+
+<main id="app"></main>
+
+<script>
+// Recetas y presupuestos se guardan en el navegador.
+// Las casillas de la sección Cocinar se reinician al volver a abrir una receta.
+const KEY="mi-cocina-v1";
+let db=readData(),page="recipes",editingId=null,cookId="",cookDone=[];
+let budget={name:"",ids:[],prices:{}};
+
+function readData(){
+  try{return JSON.parse(localStorage.getItem(KEY))||{recipes:[],budgets:[]}}
+  catch{return{recipes:[],budgets:[]}}
+}
+function saveData(){localStorage.setItem(KEY,JSON.stringify(db))}
+function uid(){return crypto.randomUUID?.()||String(Date.now()+Math.random())}
+function esc(s=""){
+  return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))
+}
+function ars(n){
+  return new Intl.NumberFormat("es-AR",{style:"currency",currency:"ARS",minimumFractionDigits:2}).format(n)
+}
+function notify(s){alert(s)}
+function go(p){page=p;render()}
+
+document.querySelectorAll("[data-page]").forEach(b=>b.onclick=()=>go(b.dataset.page));
+document.querySelector("#theme").onclick=()=>document.body.classList.toggle("dark");
+
+function render(){
+  const app=document.querySelector("#app");
+  if(page==="recipes")app.innerHTML=recipesView();
+  if(page==="cook")app.innerHTML=cookView();
+  if(page==="budget")app.innerHTML=budgetView();
+  if(page==="saved")app.innerHTML=savedView();
+  bind();
+}
+
+function recipesView(){
+  return `<h1>Mis recetas</h1>
+    <p>Guardá tus favoritas y adaptá las cantidades.</p>
+    <input id="search" placeholder="Buscar receta por nombre">
+    <div class="grid" id="recipeList">
+      ${db.recipes.map(r=>`<article class="card">
+        <h2>${esc(r.name)}</h2>
+        <p>${r.ingredients.length} ingredientes · ${r.steps.length} pasos</p>
+        <div class="actions">
+          <button data-open="${r.id}">Ver y adaptar</button>
+          <button class="secondary" data-edit="${r.id}">Editar</button>
+          <button class="ghost" data-delete="${r.id}">Eliminar</button>
+        </div>
+      </article>`).join("")||"<p>Todavía no hay recetas.</p>"}
+    </div>
+    <section class="card">
+      <h2>${editingId?"Editar receta":"Nueva receta"}</h2>
+      <label class="field">Nombre de la comida
+        <input id="name" value="${esc(db.recipes.find(r=>r.id===editingId)?.name||"")}">
+      </label>
+      <h2>Ingredientes</h2>
+      <div id="ingredients"></div>
+      <button class="secondary" id="addIngredient">＋ Agregar ingrediente</button>
+      <h2 style="margin-top:20px">Pasos (opcionales)</h2>
+      <div id="steps"></div>
+      <button class="secondary" id="addStep">＋ Agregar paso</button>
+      <div class="actions">
+        <button id="saveRecipe">Guardar receta</button>
+        <button class="ghost" id="clearForm">Limpiar</button>
+      </div>
+    </section>
+    <div id="detail"></div>`;
+}
+
+let ingDraft=[{name:"",grams:""}],stepDraft=[""];
+
+function bind(){
+  if(page==="recipes")bindRecipes();
+  if(page==="cook")bindCook();
+  if(page==="budget")bindBudget();
+  if(page==="saved")bindSaved();
+}
+
+function bindRecipes(){
+  const recipe=()=>db.recipes.find(r=>r.id===editingId);
+
+  if(editingId){
+    const r=recipe();
+    ingDraft=r.ingredients.map(x=>({...x}));
+    stepDraft=[...r.steps];
+  }
+
+  const draw=()=>{
+    document.querySelector("#ingredients").innerHTML=ingDraft.map((x,i)=>`
+      <div class="ingredient">
+        <input data-in="${i}" placeholder="Ingrediente" value="${esc(x.name)}">
+        <input data-g="${i}" type="number" min=".1" step=".1" placeholder="Gramos" value="${esc(x.grams)}">
+        <button class="ghost" data-rmi="${i}" aria-label="Quitar ingrediente">×</button>
+      </div>`).join("");
+
+    document.querySelector("#steps").innerHTML=stepDraft.map((x,i)=>`
+      <div class="step">
+        <span class="pill">${i+1}</span>
+        <textarea data-step="${i}" placeholder="Describí el paso">${esc(x)}</textarea>
+        <button class="ghost" data-up="${i}" ${i===0?"disabled":""}>↑</button>
+        <button class="ghost" data-down="${i}" ${i===stepDraft.length-1?"disabled":""}>↓</button>
+        <button class="ghost" data-rms="${i}" aria-label="Quitar paso">×</button>
+      </div>`).join("");
+
+    document.querySelectorAll("[data-in]").forEach(e=>e.oninput=()=>ingDraft[+e.dataset.in].name=e.value);
+    document.querySelectorAll("[data-g]").forEach(e=>e.oninput=()=>ingDraft[+e.dataset.g].grams=e.value);
+    document.querySelectorAll("[data-step]").forEach(e=>e.oninput=()=>stepDraft[+e.dataset.step]=e.value);
+
+    document.querySelectorAll("[data-rmi]").forEach(e=>e.onclick=()=>{
+      ingDraft.splice(+e.dataset.rmi,1);draw();
+    });
+    document.querySelectorAll("[data-rms]").forEach(e=>e.onclick=()=>{
+      stepDraft.splice(+e.dataset.rms,1);draw();
+    });
+    document.querySelectorAll("[data-up],[data-down]").forEach(e=>e.onclick=()=>{
+      const i=+(e.dataset.up??e.dataset.down),d=e.dataset.up?-1:1;
+      [stepDraft[i],stepDraft[i+d]]=[stepDraft[i+d],stepDraft[i]];
+      draw();
+    });
+  };
+
+  draw();
+
+  document.querySelector("#addIngredient").onclick=()=>{
+    ingDraft.push({name:"",grams:""});draw();
+  };
+  document.querySelector("#addStep").onclick=()=>{
+    stepDraft.push("");draw();
+  };
+  document.querySelector("#clearForm").onclick=()=>{
+    editingId=null;ingDraft=[{name:"",grams:""}];stepDraft=[""];render();
+  };
+
+  document.querySelector("#saveRecipe").onclick=()=>{
+    const name=document.querySelector("#name").value.trim();
+    const ingredients=ingDraft.map(x=>({name:x.name.trim(),grams:Number(x.grams)}));
+    const steps=stepDraft.map(x=>x.trim()).filter(Boolean);
+
+    // Los pasos son opcionales; nombre e ingredientes sí son obligatorios.
+    if(!name||!ingredients.length||ingredients.some(x=>!x.name||x.grams<=0||!Number.isFinite(x.grams))){
+      notify("Completá el nombre y cada ingrediente con gramos mayores a cero.");
+      return;
+    }
+
+    if(editingId)Object.assign(recipe(),{name,ingredients,steps});
+    else db.recipes.push({id:uid(),name,ingredients,steps});
+
+    editingId=null;
+    ingDraft=[{name:"",grams:""}];
+    stepDraft=[""];
+    saveData();
+    render();
+    notify("Receta guardada.");
+  };
+
+  document.querySelector("#search").oninput=e=>
+    document.querySelectorAll("#recipeList article").forEach(c=>
+      c.classList.toggle("hidden",!c.textContent.toLowerCase().includes(e.target.value.toLowerCase()))
+    );
+
+  document.querySelectorAll("[data-edit]").forEach(b=>b.onclick=()=>{
+    editingId=b.dataset.edit;
+    render();
+    window.scrollTo(0,document.body.scrollHeight);
+  });
+
+  document.querySelectorAll("[data-delete]").forEach(b=>b.onclick=()=>{
+    if(confirm("¿Eliminar esta receta?")){
+      db.recipes=db.recipes.filter(r=>r.id!==b.dataset.delete);
+      saveData();
+      render();
+    }
+  });
+
+  document.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>showRecipe(b.dataset.open));
+}
+
+function showRecipe(id){
+  const r=db.recipes.find(x=>x.id===id);
+  const d=document.querySelector("#detail");
+
+  d.innerHTML=`<section class="card">
+    <h2>${esc(r.name)}</h2>
+    <p>Modificá un peso para recalcular los demás.</p>
+    <div id="scaled">
+      ${r.ingredients.map((x,i)=>`<div class="ingredient">
+        <strong>${esc(x.name)}</strong>
+        <input type="number" min=".1" step=".1" data-scale="${i}" value="${x.grams}">
+        <span>g</span>
+      </div>`).join("")}
+    </div>
+    <div class="actions">
+      <button class="secondary" id="restore">Restaurar receta original</button>
+      <button id="clone">Guardar como nueva receta</button>
+    </div>
+    <h2 style="margin-top:18px">Pasos</h2>
+    ${r.steps.length?`<ol>${r.steps.map(x=>`<li>${esc(x)}</li>`).join("")}</ol>`:"<p>Esta receta no tiene pasos cargados.</p>"}
+  </section>`;
+
+  const inputs=[...d.querySelectorAll("[data-scale]")];
+  inputs.forEach(e=>e.oninput=()=>{
+    const i=+e.dataset.scale,n=Number(e.value);
+    if(n>0)inputs.forEach((x,j)=>{
+      if(i!==j)x.value=(r.ingredients[j].grams*n/r.ingredients[i].grams).toFixed(1);
+    });
+  });
+
+  d.querySelector("#restore").onclick=()=>inputs.forEach((e,i)=>e.value=r.ingredients[i].grams);
+  d.querySelector("#clone").onclick=()=>{
+    const name=prompt("Nombre para la nueva receta",r.name+" adaptada");
+    if(!name?.trim())return;
+
+    db.recipes.push({
+      id:uid(),
+      name:name.trim(),
+      ingredients:r.ingredients.map((x,i)=>({...x,grams:Math.round(Number(inputs[i].value)*10)/10})),
+      steps:[...r.steps]
+    });
+    saveData();
+    render();
+    notify("Nueva receta guardada.");
+  };
+}
+
+function cookView(){
+  return `<h1>Cocinar</h1>
+    <p>Elegí una receta; las casillas se reinician al volver a abrirla.</p>
+    <label class="field">Receta
+      <select id="cookSelect">
+        <option value="">Seleccionar receta…</option>
+        ${db.recipes.map(r=>`<option value="${r.id}" ${cookId===r.id?"selected":""}>${esc(r.name)}</option>`).join("")}
+      </select>
+    </label>
+    <div id="cookArea"></div>`;
+}
+
+function bindCook(){
+  document.querySelector("#cookSelect").onchange=e=>{
+    cookId=e.target.value;
+    cookDone=[];
+    render();
+  };
+
+  const r=db.recipes.find(x=>x.id===cookId);
+  if(!r)return;
+
+  cookDone=r.ingredients.map((_,i)=>!!cookDone[i]);
+
+  const draw=()=>{
+    const count=cookDone.filter(Boolean).length;
+    document.querySelector("#cookArea").innerHTML=`<section class="card">
+      <h2>${esc(r.name)}</h2>
+      <p>${count} de ${r.ingredients.length} listos</p>
+      <div class="progress"><i style="width:${count/r.ingredients.length*100}%"></i></div>
+      ${r.ingredients.map((x,i)=>`<label class="check ${cookDone[i]?"checked":""}">
+        <input type="checkbox" data-check="${i}" ${cookDone[i]?"checked":""}>
+        ${esc(x.name)} · ${x.grams} g
+      </label>`).join("")}
+      <button id="finish">Terminar receta</button>
+      ${r.steps.length?`<h2 style="margin-top:18px">Pasos</h2><ol>${r.steps.map(x=>`<li>${esc(x)}</li>`).join("")}</ol>`:""}
+    </section>`;
+
+    document.querySelectorAll("[data-check]").forEach(e=>e.onchange=()=>{
+      cookDone[+e.dataset.check]=e.checked;
+      if(cookDone.every(Boolean)){
+        notify("¡Receta terminada!");
+        cookId="";
+        render();
+      }else draw();
+    });
+
+    document.querySelector("#finish").onclick=()=>{
+      notify("¡Receta terminada!");
+      cookId="";
+      render();
+    };
+  };
+
+  draw();
+}
+
+function budgetView(){
+  return `<h1>Presupuesto</h1>
+    <p>Calculá el costo proporcional de una o varias recetas.</p>
+    <label class="field">Recetas (Ctrl o ⌘ para elegir varias)
+      <select id="budgetSelect" multiple size="5">
+        ${db.recipes.map(r=>`<option value="${r.id}" ${budget.ids.includes(r.id)?"selected":""}>${esc(r.name)}</option>`).join("")}
+      </select>
+    </label>
+    <div id="budgetRows"></div>`;
+}
+
+function bindBudget(){
+  document.querySelector("#budgetSelect").onchange=e=>{
+    budget.ids=[...e.target.selectedOptions].map(o=>o.value);
+    render();
+  };
+
+  const out=document.querySelector("#budgetRows");
+  if(!budget.ids.length){
+    out.innerHTML="<p>Seleccioná una o más recetas.</p>";
+    return;
+  }
+
+  let total=0,incomplete=false,html="";
+
+  budget.ids.forEach(id=>{
+    const r=db.recipes.find(x=>x.id===id);
+    if(!r)return;
+    let subtotal=0;
+    html+=`<section class="card"><h2>${esc(r.name)}</h2>`;
+
+    r.ingredients.forEach((x,i)=>{
+      const key=id+":"+i,p=budget.prices[key]||{};
+      const price=Number(p.price),qty=Number(p.qty);
+      const cost=price>0&&qty>0?price*x.grams/qty:null;
+
+      if(cost===null)incomplete=true;
+      else{subtotal+=cost;total+=cost}
+
+      html+=`<div>
+        <strong>${esc(x.name)}</strong> · ${x.grams} g
+        <div class="row">
+          <label class="field">Precio pagado ($)
+            <input type="number" min=".01" step=".01" data-price="${key}" value="${esc(p.price||"")}">
+          </label>
+          <label class="field">Cantidad comprada (g)
+            <input type="number" min=".1" step=".1" data-qty="${key}" value="${esc(p.qty||"")}">
+          </label>
+          <strong>${cost===null?"Sin precio":ars(cost)}</strong>
+        </div>
+      </div>`;
+    });
+
+    html+=`<div class="right"><strong>Subtotal: ${ars(subtotal)}</strong></div></section>`;
+  });
+
+  out.innerHTML=html+`<section class="card">
+    <label class="field">Nombre del presupuesto
+      <input id="budgetName" value="${esc(budget.name)}" placeholder="Ej.: Cena del sábado">
+    </label>
+    <h2>Total general: ${ars(total)}</h2>
+    ${incomplete?"<p>El total está incompleto: hay ingredientes sin precio.</p>":""}
+    <button id="saveBudget">Guardar presupuesto</button>
+  </section>`;
+
+  document.querySelector("#budgetName").oninput=e=>budget.name=e.target.value;
+
+  // Actualiza los cálculos y devuelve el foco al campo para seguir escribiendo.
+  out.querySelectorAll("[data-price],[data-qty]").forEach(e=>e.oninput=()=>{
+    const field=e.dataset.price?"price":"qty";
+    const key=e.dataset[field];
+
+    budget.prices[key]||={};
+    budget.prices[key][field]=e.value;
+
+    bindBudget();
+
+    const next=[...document.querySelectorAll(`[data-${field}]`)]
+      .find(input=>input.dataset[field]===key);
+    next?.focus({preventScroll:true});
+  });
+
+  document.querySelector("#saveBudget").onclick=()=>{
+    if(!budget.name.trim()){
+      notify("Poné un nombre al presupuesto.");
+      return;
+    }
+
+    db.budgets.push({
+      id:uid(),
+      name:budget.name.trim(),
+      ids:[...budget.ids],
+      prices:structuredClone(budget.prices)
+    });
+
+    saveData();
+    budget={name:"",ids:[],prices:{}};
+    go("saved");
+    notify("Presupuesto guardado.");
+  };
+}
+
+function savedView(){
+  return `<h1>Presupuestos guardados</h1>
+    ${db.budgets.map(b=>`<section class="card">
+      <h2>${esc(b.name)}</h2>
+      <p>${b.ids.map(i=>esc(db.recipes.find(r=>r.id===i)?.name||"Receta eliminada")).join(" · ")}</p>
+      <button class="ghost" data-bdel="${b.id}">Eliminar</button>
+    </section>`).join("")||"<p>Todavía no hay presupuestos.</p>"}
+    <section class="card">
+      <h2>Respaldo</h2>
+      <div class="actions">
+        <button id="export">Exportar JSON</button>
+        <label class="btn secondary">Importar JSON
+          <input id="import" type="file" accept=".json,application/json" hidden>
+        </label>
+      </div>
+    </section>`;
+}
+
+function bindSaved(){
+  document.querySelectorAll("[data-bdel]").forEach(b=>b.onclick=()=>{
+    if(confirm("¿Eliminar este presupuesto?")){
+      db.budgets=db.budgets.filter(x=>x.id!==b.dataset.bdel);
+      saveData();
+      render();
+    }
+  });
+
+  document.querySelector("#export").onclick=()=>{
+    const a=document.createElement("a");
+    const url=URL.createObjectURL(new Blob([JSON.stringify(db,null,2)],{type:"application/json"}));
+    a.href=url;
+    a.download="mi-cocina-respaldo.json";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  document.querySelector("#import").onchange=async e=>{
+    try{
+      const x=JSON.parse(await e.target.files[0].text());
+      if(!Array.isArray(x.recipes)||!Array.isArray(x.budgets))throw Error();
+      db=x;
+      saveData();
+      render();
+      notify("Respaldo importado.");
+    }catch{
+      notify("El archivo JSON no es un respaldo válido.");
+    }
+  };
+}
+
+render();
+</script>
+</body>
+<script>
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("./sw.js");
+    });
+  }
+</script>
+</html>
